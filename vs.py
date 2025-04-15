@@ -1,16 +1,18 @@
 import os
 import uuid
-from flask import Flask, request, render_template, send_file
+from flask import Flask, request, send_file
 from werkzeug.utils import secure_filename
 import ffmpeg
 import whisper
 from transformers import pipeline
 from sqlalchemy import create_engine, Column, Integer, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
-from flask import Flask, request, render_template, send_file, jsonify
+from flask import Flask, request, send_file, send_from_directory, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv
 
-app = Flask(__name__)
+load_dotenv()
+app = Flask(__name__, static_folder="frontend/build")
 CORS(app) 
 
 UPLOAD_FOLDER = 'uploads'
@@ -18,6 +20,25 @@ SUMMARY_FOLDER = 'summaries'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(SUMMARY_FOLDER, exist_ok=True)
 
+@app.route('/')
+def index():
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_static(path):
+    if os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    else:
+        return send_from_directory(app.static_folder, 'index.html')
+
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def serve(path):
+    if path != "" and os.path.exists(f"build/{path}"):
+        return send_from_directory("build", path)
+    else:
+        return send_from_directory("build", "index.html")
+    
 whisper_model = whisper.load_model("base")
 
 summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
@@ -65,7 +86,7 @@ def split_text(text, max_tokens=800):
 def summarize_long_text(text):
     import requests
 
-    TOGETHER_API_KEY = "19300ace975db1d156b3b4ac57564456274bc116cf337c7e6d547bda3749ca66"
+    TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
     TOGETHER_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
     prompt = f"""
@@ -75,7 +96,7 @@ def summarize_long_text(text):
     {text}
     \"\"\"
 
-    Respond with: summary
+    Respond with direct summary
     """
 
     headers = {
@@ -106,7 +127,7 @@ def summarize_long_text(text):
 def generate_summary_and_quiz(text, level):
     import requests
 
-    TOGETHER_API_KEY = "19300ace975db1d156b3b4ac57564456274bc116cf337c7e6d547bda3749ca66"
+    TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
     TOGETHER_MODEL = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 
     level_prompt = {
@@ -170,9 +191,6 @@ def generate_summary_and_quiz(text, level):
 
     return summary, quiz
 
-@app.route('/')
-def index():
-    return send_file('frontend/build/index.html')
 
 @app.route('/process', methods=['POST'])
 def process():
