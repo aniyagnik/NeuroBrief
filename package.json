@@ -1,0 +1,14 @@
+{
+  "name": "neurobrief",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NeuroBrief — video summarization and quiz generation",
+  "scripts": {
+    "install:all": "npm run install:frontend && pip install -r requirements.txt",
+    "install:frontend": "npm install --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "dev:api": "python vs.py",
+    "dev:ui": "npm start --prefix frontend",
+    "start": "./start.sh"
+  }
+}

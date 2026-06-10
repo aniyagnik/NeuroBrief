@@ -4,7 +4,7 @@ cd "$(dirname "$0")"
 
 if [[ ! -d frontend/build ]] || [[ ! -f frontend/build/index.html ]]; then
   echo "Building frontend..."
-  (cd frontend && npm ci && npm run build)
+  (cd frontend && npm install && npm run build)
 fi
 
 if [[ -d .venv ]]; then
