@@ -11,8 +11,10 @@ Single repo: React frontend + Flask backend. In production the backend serves th
 ├── frontend/src/App.js   # React UI + quiz
 ├── vs.py                 # Flask API + pipeline
 ├── requirements.txt    # Python dependencies
-├── start.sh            # Production start (build UI + gunicorn)
-├── Procfile            # Heroku / Railway deploy
+├── start.sh            # Local production start
+├── Dockerfile          # Render / Docker deploy (ffmpeg + UI build)
+├── render.yaml           # Render Blueprint
+├── Procfile              # Heroku / Railway
 ├── .env.example        # Copy to .env and add API keys
 └── package.json        # Root scripts (build, dev helpers)
 ```
@@ -70,11 +72,47 @@ source .venv/bin/activate
 
 Open [http://localhost:5000](http://localhost:5000).
 
-## Deploy
+## Deploy on Render (recommended)
+
+The repo includes a **Dockerfile** (ffmpeg + built React UI) and **`render.yaml`** for one-click deploy.
+
+### Option A — Blueprint (easiest)
+
+1. Push this repo to GitHub (do **not** commit `.env`).
+2. Go to [Render Dashboard](https://dashboard.render.com/) → **New** → **Blueprint**.
+3. Connect your GitHub repo — Render reads `render.yaml`.
+4. When prompted, set:
+   - `ASSEMBLYAI_API_KEY`
+   - `HF_API_KEY`
+5. Click **Apply**. First deploy takes ~5–10 minutes.
+
+### Option B — Manual Web Service
+
+1. **New** → **Web Service** → connect repo.
+2. **Runtime:** Docker
+3. **Health check path:** `/api/health`
+4. Add environment variables from `.env.example` (at minimum `ASSEMBLYAI_API_KEY`, `HF_API_KEY`).
+5. Deploy.
+
+Your app will be live at `https://<service-name>.onrender.com` (UI + API on one URL).
+
+### Render notes
+
+| Topic | Detail |
+|-------|--------|
+| Free tier | Service sleeps after ~15 min idle; first request may be slow |
+| Job status | Stored in memory — lost if the instance restarts |
+| Uploads | Ephemeral disk — fine per request, not long-term storage |
+| YouTube | Works out of the box; set `YTDLP_COOKIES_BROWSER` if YouTube blocks downloads |
+| File uploads | Supported (ffmpeg is included in the Docker image) |
+
+Verify deploy: `curl https://<your-app>.onrender.com/api/health`
+
+## Deploy (other platforms)
 
 1. Set environment variables from `.env.example` on your host.
 2. Build frontend: `npm run build`
-3. Start with gunicorn (see `Procfile` or `start.sh`).
+3. Start with gunicorn (see `Procfile`, `start.sh`, or `Dockerfile`).
 
 Health check: `GET /api/health`
 

@@ -1,0 +1,21 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: neurobrief
+    runtime: docker
+    plan: free
+    region: oregon
+    healthCheckPath: /api/health
+    envVars:
+      - key: ASSEMBLYAI_API_KEY
+        sync: false
+      - key: HF_API_KEY
+        sync: false
+      - key: HF_MODEL
+        value: meta-llama/Meta-Llama-3-8B-Instruct
+      - key: FLASK_DEBUG
+        value: "0"
+      - key: JOB_WORKERS
+        value: "1"
+      - key: LOG_LEVEL
+        value: INFO

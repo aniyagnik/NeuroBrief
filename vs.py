@@ -174,6 +174,19 @@ app = Flask(__name__, static_folder=STATIC)
 CORS(app)
 
 
+@app.route("/api/health")
+def health():
+    built = os.path.isfile(os.path.join(app.static_folder, "index.html"))
+    has_keys = bool(env("ASSEMBLYAI_API_KEY")) and bool(env("HF_API_KEY"))
+    payload = {
+        "status": "ok" if has_keys and built else "degraded",
+        "assemblyai_configured": bool(env("ASSEMBLYAI_API_KEY")),
+        "hf_configured": bool(env("HF_API_KEY")),
+        "frontend_built": built,
+    }
+    return jsonify(payload), 200 if has_keys and built else 503
+
+
 @app.route("/api/jobs/<job_id>")
 def job_status(job_id):
     if not UUID.match(job_id):
