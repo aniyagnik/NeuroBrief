@@ -5,7 +5,6 @@ import sys
 import threading
 import time
 import uuid
-from contextlib import contextmanager
 from urllib.parse import urlparse
 
 import ffmpeg
@@ -14,8 +13,6 @@ import yt_dlp
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
-from sqlalchemy import Column, String, Text, create_engine, inspect, text
-from sqlalchemy.orm import declarative_base, sessionmaker
 from werkzeug.utils import secure_filename
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -24,10 +21,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("neurobrief")
 
 UPLOAD = os.path.join(BASE, os.getenv("UPLOAD_FOLDER", "uploads"))
-SUMMARY = os.path.join(BASE, os.getenv("SUMMARY_FOLDER", "summaries"))
 STATIC = next((p for p in (os.path.join(BASE, "frontend", "build"), os.path.join(BASE, "build")) if os.path.isdir(p)), os.path.join(BASE, "build"))
 os.makedirs(UPLOAD, exist_ok=True)
-os.makedirs(SUMMARY, exist_ok=True)
 
 HF_URL = "https://router.huggingface.co/v1/chat/completions"
 HF_MODEL = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
@@ -41,40 +36,25 @@ STAGES = {
     "summarizing": "Generating summary and quiz…",
 }
 
-Base = declarative_base()
-
-
-class Job(Base):
-    __tablename__ = "jobs"
-    id = Column(String(36), primary_key=True)
-    status = Column(String(20), default="pending")
-    error = Column(Text)
-    summary = Column(Text)
-    quiz = Column(Text)
-    stage = Column(String(40))
-    level = Column(String(20))
-
-
-engine = create_engine(os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(BASE, 'feedback.db')}"), connect_args={"check_same_thread": False})
-Base.metadata.create_all(engine)
-if inspect(engine).has_table("jobs") and "stage" not in {c["name"] for c in inspect(engine).get_columns("jobs")}:
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE jobs ADD COLUMN stage TEXT"))
-Session = sessionmaker(bind=engine)
+jobs = {}
+jobs_lock = threading.Lock()
 sem = threading.Semaphore(max(1, int(os.getenv("JOB_WORKERS", "2"))))
 
 
-@contextmanager
-def db():
-    s = Session()
-    try:
-        yield s
-        s.commit()
-    except Exception:
-        s.rollback()
-        raise
-    finally:
-        s.close()
+def new_job(job_id, level):
+    with jobs_lock:
+        jobs[job_id] = {"id": job_id, "status": "pending", "level": level, "error": None, "summary": None, "quiz": None, "stage": None}
+
+
+def get_job(job_id):
+    with jobs_lock:
+        return jobs.get(job_id)
+
+
+def set_job(job_id, **kw):
+    with jobs_lock:
+        if job_id in jobs:
+            jobs[job_id].update(kw)
 
 
 def env(k):
@@ -155,14 +135,6 @@ def make_quiz(summary, level="medium"):
     return text_out or "Quiz generation failed."
 
 
-def set_job(job_id, **kw):
-    with db() as s:
-        row = s.get(Job, job_id)
-        if row:
-            for k, v in kw.items():
-                setattr(row, k, v)
-
-
 def run_pipeline(app, job_id, level, label, audio_fn):
     with app.app_context():
         audio = None
@@ -174,8 +146,6 @@ def run_pipeline(app, job_id, level, label, audio_fn):
             set_job(job_id, stage="summarizing")
             summary = summarize(transcript)
             quiz = make_quiz(summary, "hard" if level == "high" else level)
-            for kind, body in (("summary", summary), ("quiz", quiz), ("transcript", transcript)):
-                open(os.path.join(SUMMARY, f"{job_id}_{kind}.txt"), "w").write(body)
             set_job(job_id, status="completed", summary=summary, quiz=quiz, error=None, stage=None)
             log.info("[%s] done", job_id[:8])
         except Exception as e:
@@ -208,18 +178,17 @@ CORS(app)
 def job_status(job_id):
     if not UUID.match(job_id):
         return jsonify({"error": "Invalid job id"}), 400
-    with db() as s:
-        row = s.get(Job, job_id)
-        if not row:
-            return jsonify({"error": "Not found"}), 404
-        stage = None if row.status == "completed" else row.stage
-        msg = "Queued…" if row.status == "pending" else ("Done!" if row.status == "completed" else STAGES.get(stage or "", "Processing…"))
-        data = {"job_id": row.id, "uid": row.id, "status": row.status, "stage": stage, "status_message": msg, "error": row.error}
-        if row.status == "completed":
-            data["summary"], data["quiz"] = row.summary or "", row.quiz or ""
-        r = jsonify(data)
-        r.headers["Cache-Control"] = "no-store"
-        return r
+    row = get_job(job_id)
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+    stage = None if row["status"] == "completed" else row["stage"]
+    msg = "Queued…" if row["status"] == "pending" else ("Done!" if row["status"] == "completed" else STAGES.get(stage or "", "Processing…"))
+    data = {"job_id": row["id"], "uid": row["id"], "status": row["status"], "stage": stage, "status_message": msg, "error": row["error"]}
+    if row["status"] == "completed":
+        data["summary"], data["quiz"] = row["summary"] or "", row["quiz"] or ""
+    r = jsonify(data)
+    r.headers["Cache-Control"] = "no-store"
+    return r
 
 
 @app.route("/process", methods=["POST"])
@@ -233,8 +202,7 @@ def process():
 
     level = (request.form.get("level") or "medium").lower()
     job_id = str(uuid.uuid4())
-    with db() as s:
-        s.add(Job(id=job_id, status="pending", level=level))
+    new_job(job_id, level)
 
     if f:
         ext = os.path.splitext(f.filename)[1].lower()
