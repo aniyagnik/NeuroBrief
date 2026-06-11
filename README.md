@@ -103,10 +103,40 @@ Your app will be live at `https://<service-name>.onrender.com` (UI + API on one 
 | Free tier | Service sleeps after ~15 min idle; first request may be slow |
 | Job status | Stored in memory — lost if the instance restarts |
 | Uploads | Ephemeral disk — fine per request, not long-term storage |
-| YouTube | Works out of the box; set `YTDLP_COOKIES_BROWSER` if YouTube blocks downloads |
+| YouTube | Often **blocked on cloud IPs** — use **file upload**, or add `YTDLP_COOKIES` (see below) |
 | File uploads | Supported (ffmpeg is included in the Docker image) |
 
+### YouTube blocked on Render (`Sign in to confirm you're not a bot`)
+
+YouTube frequently blocks datacenter IPs (Render, Railway, etc.). **Easiest fix: upload the video file** instead of pasting a URL.
+
+To try YouTube links on Render:
+
+1. Install a browser extension like **"Get cookies.txt LOCALLY"** (Chrome/Firefox).
+2. While logged into YouTube, export cookies for `youtube.com` (Netscape format).
+3. Render → **Environment** → add variable **`YTDLP_COOKIES`**
+4. Paste the **entire** cookies file contents (multiline is OK).
+5. Redeploy.
+
+Locally you can use `YTDLP_COOKIES_BROWSER=chrome` in `.env` instead.
+
 Verify deploy: `curl https://<your-app>.onrender.com/api/health`
+
+### Troubleshooting `frontend_built: false`
+
+This means the React UI was **not** built into the server. Common cause: the service was created as **Python** instead of **Docker**.
+
+**Fix:**
+
+1. Render Dashboard → your service → **Settings**
+2. Under **Build & Deploy**, set **Runtime** to **Docker** (not Python)
+3. **Dockerfile path:** `./Dockerfile`
+4. **Docker build context:** `.` (repo root)
+5. **Manual Deploy** → **Clear build cache & deploy**
+
+After redeploy, `/api/health` should show `"frontend_built": true` and `"runtime": "docker"`.
+
+If you still see `"runtime": "native"`, Docker is not being used.
 
 ## Deploy (other platforms)
 

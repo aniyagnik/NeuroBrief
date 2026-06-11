@@ -61,6 +61,86 @@ def env(k):
     return (os.getenv(k) or "").strip().strip('"').strip("'")
 
 
+YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be"}
+_cookies_cache = None
+
+
+def normalize_youtube_url(raw):
+    u = (raw or "").strip()
+    if not u:
+        return u
+    if u.startswith(("http://", "https://")):
+        return u
+    if u.startswith("youtu.be/"):
+        return f"https://{u}"
+    if u.startswith("www."):
+        return f"https://{u}"
+    if u.startswith("com/"):
+        return f"https://www.youtube.{u}"
+    if u.startswith("m.youtube.com") or u.startswith("music.youtube.com"):
+        return f"https://{u}"
+    if u.startswith("watch?"):
+        return f"https://www.youtube.com/{u}"
+    return f"https://www.youtube.com/{u.lstrip('/')}"
+
+
+def youtube_cookies_path():
+    global _cookies_cache
+    if _cookies_cache and os.path.isfile(_cookies_cache):
+        return _cookies_cache
+    path = env("YTDLP_COOKIES_FILE")
+    if path:
+        full = path if os.path.isabs(path) else os.path.join(BASE, path)
+        if os.path.isfile(full):
+            _cookies_cache = full
+            return full
+    raw = os.getenv("YTDLP_COOKIES")
+    if raw and raw.strip():
+        dest = os.path.join(UPLOAD, "_youtube_cookies.txt")
+        with open(dest, "w", encoding="utf-8") as fh:
+            fh.write(raw.strip() + "\n")
+        _cookies_cache = dest
+        log.info("YouTube cookies loaded from YTDLP_COOKIES")
+        return dest
+    return None
+
+
+def download_youtube_audio(url, out_base):
+    url = normalize_youtube_url(url)
+    opts = {
+        "format": "bestaudio/best",
+        "outtmpl": out_base + ".%(ext)s",
+        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "128"}],
+        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+    }
+    cookies = youtube_cookies_path()
+    if cookies:
+        opts["cookiefile"] = cookies
+    elif env("YTDLP_COOKIES_BROWSER"):
+        opts["cookiesfrombrowser"] = (env("YTDLP_COOKIES_BROWSER"),)
+
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+    except yt_dlp.utils.DownloadError as e:
+        msg = str(e)
+        if "Sign in to confirm" in msg or "not a bot" in msg:
+            raise RuntimeError(
+                "YouTube blocked the download from this server. "
+                "Upload the video file instead, or set YTDLP_COOKIES on Render "
+                "(export cookies from your browser — see README)."
+            ) from e
+        raise RuntimeError(f"YouTube download failed: {msg}") from e
+
+    mp3 = out_base + ".mp3"
+    if not os.path.isfile(mp3):
+        raise RuntimeError("YouTube download finished but no audio file was created.")
+    return mp3
+
+
 def llm(prompt, tokens=900, temp=0.4):
     key = env("HF_API_KEY")
     if not key:
@@ -176,13 +256,16 @@ CORS(app)
 
 @app.route("/api/health")
 def health():
-    built = os.path.isfile(os.path.join(app.static_folder, "index.html"))
+    index = os.path.join(app.static_folder, "index.html")
+    built = os.path.isfile(index)
     has_keys = bool(env("ASSEMBLYAI_API_KEY")) and bool(env("HF_API_KEY"))
     payload = {
         "status": "ok" if has_keys and built else "degraded",
         "assemblyai_configured": bool(env("ASSEMBLYAI_API_KEY")),
         "hf_configured": bool(env("HF_API_KEY")),
         "frontend_built": built,
+        "static_folder": app.static_folder,
+        "runtime": "docker" if os.path.isfile("/.dockerenv") else "native",
     }
     return jsonify(payload), 200 if has_keys and built else 503
 
@@ -206,7 +289,7 @@ def job_status(job_id):
 
 @app.route("/process", methods=["POST"])
 def process():
-    url = (request.form.get("youtube_url") or "").strip()
+    url = normalize_youtube_url((request.form.get("youtube_url") or "").strip())
     f = request.files.get("video_file")
     if f and not f.filename:
         f = None
@@ -239,23 +322,13 @@ def process():
             set_job(job_id, status="failed", error="Server busy.")
             return jsonify({"error": "Server busy."}), 503
     else:
-        host = urlparse(url).hostname or ""
-        if host.lower() not in {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}:
-            return jsonify({"error": "Invalid YouTube URL."}), 400
+        host = (urlparse(url).hostname or "").lower()
+        if host not in YOUTUBE_HOSTS:
+            return jsonify({"error": "Invalid YouTube URL. Use a full link like https://www.youtube.com/watch?v=..."}), 400
 
         def audio_fn():
             set_job(job_id, status="processing", stage="downloading")
-            out = os.path.join(UPLOAD, job_id)
-            opts = {"format": "bestaudio/best", "outtmpl": out + ".%(ext)s",
-                    "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}],
-                    "quiet": True, "no_warnings": True}
-            if env("YTDLP_COOKIES_BROWSER"):
-                opts["cookiesfrombrowser"] = (env("YTDLP_COOKIES_BROWSER"),)
-            yt_dlp.YoutubeDL(opts).download([url])
-            mp3 = out + ".mp3"
-            if not os.path.isfile(mp3):
-                raise RuntimeError("YouTube download failed.")
-            return mp3
+            return download_youtube_audio(url, os.path.join(UPLOAD, job_id))
 
         if not start_job(run_pipeline, app, job_id, level, url, audio_fn):
             set_job(job_id, status="failed", error="Server busy.")
@@ -277,4 +350,7 @@ def spa(path):
 
 
 if __name__ == "__main__":
+    log.info("Static: %s (index.html=%s)", STATIC, os.path.isfile(os.path.join(STATIC, "index.html")))
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=os.getenv("FLASK_DEBUG") == "1", threaded=True)
+else:
+    log.info("Static: %s (index.html=%s)", STATIC, os.path.isfile(os.path.join(STATIC, "index.html")))

@@ -1,8 +1,11 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
+# IMPORTANT: Runtime must be Docker (not Python). The UI is built inside the image.
 services:
   - type: web
     name: neurobrief
     runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: free
     region: oregon
     healthCheckPath: /api/health

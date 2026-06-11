@@ -4,6 +4,17 @@ import logo from './logo.png';
 
 axios.defaults.timeout = 30000;
 
+function normalizeYoutubeUrl(raw) {
+  let u = raw.trim();
+  if (!u) return u;
+  if (/^https?:\/\//i.test(u)) return u;
+  if (u.startsWith('youtu.be/')) return `https://${u}`;
+  if (u.startsWith('www.')) return `https://${u}`;
+  if (u.startsWith('com/')) return `https://www.youtube.${u}`;
+  if (u.startsWith('watch?')) return `https://www.youtube.com/${u}`;
+  return `https://www.youtube.com/${u.replace(/^\//, '')}`;
+}
+
 const STAGE_LABEL = {
   pending: 'Queued…',
   downloading: 'Downloading audio from YouTube…',
@@ -188,7 +199,7 @@ export default function App() {
     setMsg('Submitting…');
     const form = new FormData();
     if (file) form.append('video_file', file);
-    if (url.trim()) form.append('youtube_url', url.trim());
+    if (url.trim()) form.append('youtube_url', normalizeYoutubeUrl(url));
     form.append('level', level);
     try {
       const { data } = await axios.post('/process', form);
@@ -206,7 +217,10 @@ export default function App() {
 
       <form onSubmit={submit} className="w-full max-w-lg bg-white p-6 rounded-xl shadow space-y-4 text-left">
         <label className="block">Upload Video<input type="file" accept="video/*" className="w-full border rounded px-3 py-2 mt-1" onChange={(e) => setFile(e.target.files[0] || null)} /></label>
-        <label className="block">YouTube URL<input type="url" className="w-full border rounded px-3 py-2 mt-1" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://youtube.com/..." /></label>
+        <label className="block">YouTube URL
+          <input type="text" className="w-full border rounded px-3 py-2 mt-1" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." />
+          <span className="text-xs text-gray-500 mt-1 block">On deployed servers, YouTube may block downloads — upload the video file if that happens.</span>
+        </label>
         <label className="block">Difficulty
           <select className="w-full border rounded px-3 py-2 mt-1" value={level} onChange={(e) => setLevel(e.target.value)}>
             <option value="easy">Easy</option><option value="medium">Medium</option><option value="high">High</option>
