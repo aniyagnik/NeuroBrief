@@ -137,10 +137,13 @@ def generate_quiz(summary, level="medium"):
         "hard": "Generate challenging quiz questions requiring deeper understanding.",
     }
     prompt = f"""
-        Based on the following summary, generate a quiz with 3 different types of questions:
+        Based on the following summary, generate a quiz using only these two question types:
         1. Multiple Choice (4 options + correct answer)
         2. True or False (with correct answer)
-        3. Fill in the Blanks (with answer)
+
+        Include 2-3 multiple choice questions and 2-3 true/false questions.
+        Do not include fill in the blank questions.
+        Every true/false question must use: Question Type: True or False
 
         {level_prompt.get(level, '')}
 

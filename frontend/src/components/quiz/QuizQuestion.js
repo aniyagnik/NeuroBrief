@@ -1,12 +1,10 @@
 import { answersMatch } from '../../utils/quiz/answersMatch';
-import { getBadgeClass, normalizeQuestionType } from '../../utils/quiz/questionTypes';
+import { getBadgeClass, getDisplayOptions, resolveQuestionType } from '../../utils/quiz/questionTypes';
 
 export default function QuizQuestion({ q, showAnswer, selected, onSelect }) {
-  const { label, badge } = normalizeQuestionType(q.type);
+  const { label, badge } = resolveQuestionType(q);
   const badgeClass = getBadgeClass(badge);
-  const isFillBlank = badge === 'fill';
-  const displayOptions =
-    q.options.length > 0 ? q.options : label === 'True or False' ? ['True', 'False'] : [];
+  const displayOptions = getDisplayOptions(q);
   const isCorrect = showAnswer && answersMatch(selected, q.answer);
 
   return (
@@ -18,19 +16,9 @@ export default function QuizQuestion({ q, showAnswer, selected, onSelect }) {
         </span>
       </div>
       <p className="font-medium text-gray-800 mb-3">{q.question}</p>
-      {isFillBlank ? (
-        <input
-          type="text"
-          value={selected || ''}
-          onChange={(e) => onSelect(q.id, e.target.value)}
-          disabled={showAnswer}
-          placeholder="Type your answer…"
-          className="w-full border border-gray-200 rounded-md px-3 py-2 text-gray-800 mb-3 focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:bg-gray-50"
-        />
-      ) : (
-        displayOptions.length > 0 && (
-          <ul className="space-y-2 mb-3">
-            {displayOptions.map((opt, idx) => {
+      {displayOptions.length > 0 && (
+        <ul className="space-y-2 mb-3">
+          {displayOptions.map((opt, idx) => {
               const isSelected = selected === opt;
               const isCorrectOption = showAnswer && answersMatch(opt, q.answer);
               const isWrongSelection = showAnswer && isSelected && !answersMatch(opt, q.answer);
@@ -62,7 +50,6 @@ export default function QuizQuestion({ q, showAnswer, selected, onSelect }) {
               );
             })}
           </ul>
-        )
       )}
       {showAnswer && (
         <div

@@ -100,5 +100,11 @@ export function parseQuizText(quizText) {
   }
 
   flush();
-  return questions;
+  return questions.filter((q) => !isFillInBlankQuestion(q));
+}
+
+function isFillInBlankQuestion(question) {
+  const type = (question.type || '').toLowerCase();
+  if (type.includes('fill')) return true;
+  return /_{3,}|\.{3,}/.test(question.question || '');
 }
