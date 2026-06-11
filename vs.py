@@ -1,3 +1,4 @@
+import base64
 import logging
 import os
 import re
@@ -94,13 +95,20 @@ def youtube_cookies_path():
         if os.path.isfile(full):
             _cookies_cache = full
             return full
-    raw = os.getenv("YTDLP_COOKIES")
+    b64 = env("YTDLP_COOKIES_BASE64")
+    if b64:
+        try:
+            raw = base64.b64decode(b64).decode("utf-8")
+        except Exception as e:
+            raise RuntimeError(f"YTDLP_COOKIES_BASE64 is invalid: {e}") from e
+    else:
+        raw = os.getenv("YTDLP_COOKIES")
     if raw and raw.strip():
         dest = os.path.join(UPLOAD, "_youtube_cookies.txt")
         with open(dest, "w", encoding="utf-8") as fh:
             fh.write(raw.strip() + "\n")
         _cookies_cache = dest
-        log.info("YouTube cookies loaded from YTDLP_COOKIES")
+        log.info("YouTube cookies loaded from env")
         return dest
     return None
 
@@ -266,6 +274,9 @@ def health():
         "frontend_built": built,
         "static_folder": app.static_folder,
         "runtime": "docker" if os.path.isfile("/.dockerenv") else "native",
+        "youtube_cookies_configured": bool(
+            env("YTDLP_COOKIES_BASE64") or os.getenv("YTDLP_COOKIES") or env("YTDLP_COOKIES_FILE")
+        ),
     }
     return jsonify(payload), 200 if has_keys and built else 503
 

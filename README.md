@@ -112,13 +112,21 @@ YouTube frequently blocks datacenter IPs (Render, Railway, etc.). **Easiest fix:
 
 To try YouTube links on Render:
 
-1. Install a browser extension like **"Get cookies.txt LOCALLY"** (Chrome/Firefox).
-2. While logged into YouTube, export cookies for `youtube.com` (Netscape format).
-3. Render → **Environment** → add variable **`YTDLP_COOKIES`**
-4. Paste the **entire** cookies file contents (multiline is OK).
-5. Redeploy.
+1. Install **"Get cookies.txt LOCALLY"** in Chrome/Firefox.
+2. Open [youtube.com](https://www.youtube.com) while logged in → export cookies (Netscape `.txt` format).
+3. On your computer, base64-encode the file (recommended — Render handles one line better):
+   ```bash
+   base64 -w0 youtube_cookies.txt
+   ```
+4. Render Dashboard → your service → **Environment** → **Add variable**
+   - **Key:** `YTDLP_COOKIES_BASE64`
+   - **Value:** paste the long base64 string from step 3
+5. **Save** → **Manual Deploy** (must redeploy after env changes).
+6. Check: `curl https://YOUR-APP.onrender.com/api/health` → `"youtube_cookies_configured": true`
 
-Locally you can use `YTDLP_COOKIES_BROWSER=chrome` in `.env` instead.
+Alternative: set **`YTDLP_COOKIES`** to the raw file contents (multiline). Base64 is more reliable on Render.
+
+Locally use `YTDLP_COOKIES_BROWSER=chrome` in `.env` instead.
 
 Verify deploy: `curl https://<your-app>.onrender.com/api/health`
 
