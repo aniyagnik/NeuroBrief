@@ -8,11 +8,9 @@ Single repo: React frontend + Flask backend. In production the backend serves th
 
 ```
 .
-├── frontend/           # React app (Create React App)
-│   ├── src/            # UI components
-│   ├── public/
+├── frontend/src/       # React UI (App.js + quiz.js)
 │   └── package.json
-├── vs.py               # Flask API, background jobs, static file serving
+├── vs.py               # Flask API + processing pipeline
 ├── requirements.txt    # Python dependencies
 ├── start.sh            # Production start (build UI + gunicorn)
 ├── Procfile            # Heroku / Railway deploy
