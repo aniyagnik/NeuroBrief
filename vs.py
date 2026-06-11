@@ -2,12 +2,7 @@
 
 import os
 
-from dotenv import load_dotenv
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(BASE_DIR, ".env"))
-
-from neurobrief.routes import app  # noqa: E402
+from neurobrief.routes import app
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))

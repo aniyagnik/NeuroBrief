@@ -25,7 +25,7 @@ Single repo: React frontend + Flask backend. In production the backend serves th
 - Python 3.10+
 - Node.js 18+
 - ffmpeg (for uploaded video files)
-- API keys: [AssemblyAI](https://www.assemblyai.com/), and one of [Together AI](https://www.together.ai/) or [Hugging Face](https://huggingface.co/)
+- API keys: [AssemblyAI](https://www.assemblyai.com/) and [Hugging Face](https://huggingface.co/)
 
 ## Setup
 
@@ -44,7 +44,7 @@ npm run install:frontend
 
 # 4. Configure secrets
 cp .env.example .env
-# Edit .env — at minimum set ASSEMBLYAI_API_KEY and HF_API_KEY or TOGETHER_API_KEY
+# Edit .env — at minimum set ASSEMBLYAI_API_KEY and HF_API_KEY
 ```
 
 ## Development
@@ -86,8 +86,8 @@ Health check: `GET /api/health`
 | Variable | Required | Purpose |
 |----------|----------|---------|
 | `ASSEMBLYAI_API_KEY` | Yes | Speech-to-text |
-| `HF_API_KEY` or `TOGETHER_API_KEY` | Yes | Summary & quiz |
-| `LLM_PROVIDER` | No | `auto` (default), `together`, or `huggingface` |
+| `HF_API_KEY` | Yes | Summary & quiz (Hugging Face) |
+| `HF_MODEL` | No | Default `meta-llama/Meta-Llama-3-8B-Instruct` |
 | `PORT` | No | Default `5000` |
 | `JOB_WORKERS` | No | Parallel jobs (default `2`) |
 

@@ -15,8 +15,8 @@ from neurobrief.config import (
     ALLOWED_VIDEO_EXT,
     DATABASE_URL,
     DOWNLOAD_TYPES,
+    HF_MODEL,
     JOB_WORKERS,
-    LLM_PROVIDER,
     MAX_FILE_SIZE,
     SUMMARY_FOLDER,
     UPLOAD_FOLDER,
@@ -47,7 +47,6 @@ CORS(app)
 
 
 def config_status():
-    together = bool(clean_env("TOGETHER_API_KEY"))
     hf = bool(clean_env("HF_API_KEY"))
     assembly = bool(clean_env("ASSEMBLYAI_API_KEY"))
     static_ok = bool(
@@ -55,8 +54,9 @@ def config_status():
     )
     return {
         "assemblyai_configured": assembly,
-        "llm_configured": together or hf,
-        "llm_provider": LLM_PROVIDER,
+        "llm_configured": hf,
+        "llm_provider": "huggingface",
+        "llm_model": HF_MODEL,
         "frontend_built": static_ok,
         "static_folder": app.static_folder,
         "upload_folder": UPLOAD_FOLDER,
@@ -77,17 +77,15 @@ def log_startup():
         DATABASE_URL,
     )
     logger.info(
-        "Workers: job_workers=%d max_upload=%sMB llm_provider=%s",
+        "Workers: job_workers=%d max_upload=%sMB llm=huggingface model=%s",
         JOB_WORKERS,
         cfg["max_upload_mb"],
-        LLM_PROVIDER,
+        HF_MODEL,
     )
     if not cfg["assemblyai_configured"]:
         logger.warning("ASSEMBLYAI_API_KEY is not set — transcription will fail")
     if not cfg["llm_configured"]:
-        logger.warning(
-            "No LLM API key set (TOGETHER_API_KEY / HF_API_KEY) — summarization will fail"
-        )
+        logger.warning("HF_API_KEY is not set — summarization will fail")
     if not cfg["frontend_built"]:
         logger.warning("Frontend build missing — run: cd frontend && npm run build")
 

@@ -4,7 +4,10 @@ import logging
 import os
 import sys
 
+from dotenv import load_dotenv
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_FORMAT = os.getenv(
@@ -24,11 +27,8 @@ logging.getLogger("werkzeug").setLevel(logging.WARNING)
 ALLOWED_VIDEO_EXT = {".mp4", ".webm", ".mkv", ".mov", ".avi", ".m4v"}
 MAX_FILE_SIZE = int(os.getenv("MAX_UPLOAD_BYTES", str(100 * 1024 * 1024)))
 JOB_WORKERS = max(1, int(os.getenv("JOB_WORKERS", "2")))
-TOGETHER_API_URL = "https://api.together.ai/v1/chat/completions"
-TOGETHER_MODEL = os.getenv("TOGETHER_MODEL", "mistralai/Mixtral-8x7B-Instruct-v0.1")
 HF_API_URL = "https://router.huggingface.co/v1/chat/completions"
 HF_MODEL = os.getenv("HF_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "auto").lower()
 DOWNLOAD_TYPES = frozenset({"summary", "quiz", "transcript"})
 LEVEL_ALIASES = {"high": "hard"}
 
