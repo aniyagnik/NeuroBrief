@@ -146,6 +146,22 @@ After redeploy, `/api/health` should show `"frontend_built": true` and `"runtime
 
 If you still see `"runtime": "native"`, Docker is not being used.
 
+### `argument list too long` during Docker build
+
+Render sends your repo to Docker as a **build context**. If `node_modules`, `.venv`, or video files were ever committed, the context becomes huge and the build fails.
+
+**Fix (already in repo):** `.dockerignore` uses a **whitelist** — only `vs.py`, `requirements.txt`, and frontend source are sent to Docker.
+
+**Also clean Git** (run once locally, then push):
+
+```bash
+git rm -r --cached frontend/node_modules node_modules .venv uploads 2>/dev/null || true
+git commit -m "Stop tracking node_modules and local artifacts"
+git push
+```
+
+Then **Manual Deploy → Clear build cache & deploy** on Render.
+
 ## Deploy (other platforms)
 
 1. Set environment variables from `.env.example` on your host.

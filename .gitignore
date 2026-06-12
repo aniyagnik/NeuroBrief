@@ -16,6 +16,11 @@ uploads/
 # Frontend
 frontend/node_modules/
 frontend/build/
+node_modules/
+
+# Python venv (never commit)
+.venv/
+venv/
 
 # OS & editor
 .DS_Store

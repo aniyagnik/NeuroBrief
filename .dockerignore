@@ -1,18 +1,18 @@
-.env
-.env.*
-!.env.example
-.venv
-venv
-__pycache__
-*.py[cod]
-.git
-.gitignore
-uploads
-summaries
-feedback.db
-*.mp4
-frontend/node_modules
-frontend/build
-node_modules
-README.md
-terminals
+# Whitelist-only context — avoids "argument list too long" on Render when the
+# repo contains node_modules, .venv, media files, etc.
+**
+
+!requirements.txt
+!vs.py
+
+!frontend
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/postcss.config.js
+!frontend/tailwind.config.js
+
+!frontend/public
+!frontend/public/**
+
+!frontend/src
+!frontend/src/**
