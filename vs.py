@@ -76,7 +76,27 @@ RENDER_COOKIE_PATHS = (
     "/etc/secrets/youtube_cookies.txt",
     "/etc/secrets/YTDLP_COOKIES",
 )
+WRITABLE_COOKIES = os.path.join(UPLOAD, "_youtube_cookies.txt")
 _cookies_cache = None
+_cookies_source = None
+
+
+def _materialize_cookies(source_path=None, raw_text=None):
+    """yt-dlp saves cookies back on exit — must use a writable path, not /etc/secrets."""
+    global _cookies_source
+    if raw_text is not None:
+        content = trim_youtube_cookies(raw_text)
+        _cookies_source = "env"
+    else:
+        with open(source_path, encoding="utf-8", errors="replace") as fh:
+            content = trim_youtube_cookies(fh.read())
+        _cookies_source = source_path
+    if content.count("\n") < 2:
+        raise RuntimeError("Cookie file has no valid entries after trim.")
+    with open(WRITABLE_COOKIES, "w", encoding="utf-8") as fh:
+        fh.write(content)
+    log.info("YouTube cookies materialized %s -> %s (%s)", _cookies_source, WRITABLE_COOKIES, _cookie_file_stats(WRITABLE_COOKIES))
+    return WRITABLE_COOKIES
 
 
 def trim_youtube_cookies(text):
@@ -172,32 +192,23 @@ def youtube_cookies_path():
     if path:
         full = path if os.path.isabs(path) else os.path.join(BASE, path)
         if os.path.isfile(full):
-            _cookies_cache = full
-            return full
+            _cookies_cache = _materialize_cookies(source_path=full)
+            return _cookies_cache
 
     for secret in RENDER_COOKIE_PATHS:
         if os.path.isfile(secret):
-            _cookies_cache = secret
-            log.info("YouTube cookies: %s", _cookie_file_stats(secret))
-            return secret
+            _cookies_cache = _materialize_cookies(source_path=secret)
+            return _cookies_cache
 
     secret = _find_render_secret_cookies()
     if secret:
-        _cookies_cache = secret
-        log.info("YouTube cookies (auto secret): %s", _cookie_file_stats(secret))
-        return secret
+        _cookies_cache = _materialize_cookies(source_path=secret)
+        return _cookies_cache
 
     raw = decode_cookies_from_env()
     if raw and raw.strip():
-        trimmed = trim_youtube_cookies(raw)
-        if trimmed.count("\n") < 2:
-            raise RuntimeError("YouTube cookies env var has no valid cookie entries after trim.")
-        dest = os.path.join(UPLOAD, "_youtube_cookies.txt")
-        with open(dest, "w", encoding="utf-8") as fh:
-            fh.write(trimmed)
-        _cookies_cache = dest
-        log.info("YouTube cookies from env: %s", _cookie_file_stats(dest))
-        return dest
+        _cookies_cache = _materialize_cookies(raw_text=raw)
+        return _cookies_cache
     return None
 
 
@@ -237,7 +248,7 @@ def download_youtube_audio(url, out_base):
             mp3 = out_base + ".mp3"
             if os.path.isfile(mp3):
                 return mp3
-        except yt_dlp.utils.DownloadError as e:
+        except (yt_dlp.utils.DownloadError, OSError) as e:
             last_err = e
             log.warning("YouTube client %s failed: %s", client_list, str(e)[:200])
             continue
@@ -379,7 +390,11 @@ def health():
     if _youtube_cookies_configured():
         try:
             p = youtube_cookies_path()
-            cookie_info = _cookie_file_stats(p) if p else None
+            cookie_info = {
+                "source": _cookies_source,
+                "writable": p,
+                **_cookie_file_stats(p),
+            } if p else None
         except Exception as e:
             cookie_info = {"error": str(e)}
     payload = {
