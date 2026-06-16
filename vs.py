@@ -1,4 +1,5 @@
 import base64
+import gzip
 import logging
 import os
 import re
@@ -63,7 +64,50 @@ def env(k):
 
 
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be"}
+COOKIE_DOMAIN_KEEP = (
+    "youtube.com",
+    "youtu.be",
+    "googlevideo.com",
+    "google.com",
+    "accounts.google.com",
+)
+RENDER_COOKIE_PATHS = (
+    "/etc/secrets/youtube_cookies",
+    "/etc/secrets/youtube_cookies.txt",
+    "/etc/secrets/YTDLP_COOKIES",
+)
 _cookies_cache = None
+
+
+def trim_youtube_cookies(text):
+    lines = ["# Netscape HTTP Cookie File"]
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 7:
+            continue
+        domain = parts[0].lstrip(".").lower()
+        if any(k in domain for k in COOKIE_DOMAIN_KEEP):
+            lines.append(line.rstrip())
+    return "\n".join(lines) + "\n"
+
+
+def decode_cookies_from_env():
+    gz_b64 = env("YTDLP_COOKIES_GZ_B64")
+    if gz_b64:
+        try:
+            return gzip.decompress(base64.b64decode(gz_b64)).decode("utf-8")
+        except Exception as e:
+            raise RuntimeError(f"YTDLP_COOKIES_GZ_B64 is invalid: {e}") from e
+    b64 = env("YTDLP_COOKIES_BASE64")
+    if b64:
+        try:
+            return base64.b64decode(b64).decode("utf-8")
+        except Exception as e:
+            raise RuntimeError(f"YTDLP_COOKIES_BASE64 is invalid: {e}") from e
+    return os.getenv("YTDLP_COOKIES")
 
 
 def normalize_youtube_url(raw):
@@ -85,68 +129,132 @@ def normalize_youtube_url(raw):
     return f"https://www.youtube.com/{u.lstrip('/')}"
 
 
+def _find_render_secret_cookies():
+    secrets_dir = "/etc/secrets"
+    if not os.path.isdir(secrets_dir):
+        return None
+    for name in sorted(os.listdir(secrets_dir)):
+        path = os.path.join(secrets_dir, name)
+        if os.path.isfile(path) and os.path.getsize(path) > 50:
+            return path
+    return None
+
+
+def _cookie_file_stats(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = [ln for ln in fh if ln.strip() and not ln.startswith("#")]
+        return {"path": path, "bytes": os.path.getsize(path), "entries": len(lines)}
+    except OSError:
+        return {"path": path, "bytes": 0, "entries": 0}
+
+
+def _youtube_cookies_configured():
+    path = env("YTDLP_COOKIES_FILE")
+    if path:
+        full = path if os.path.isabs(path) else os.path.join(BASE, path)
+        if os.path.isfile(full):
+            return True
+    for secret in RENDER_COOKIE_PATHS:
+        if os.path.isfile(secret):
+            return True
+    if _find_render_secret_cookies():
+        return True
+    return bool(env("YTDLP_COOKIES_GZ_B64") or env("YTDLP_COOKIES_BASE64") or os.getenv("YTDLP_COOKIES"))
+
+
 def youtube_cookies_path():
     global _cookies_cache
     if _cookies_cache and os.path.isfile(_cookies_cache):
         return _cookies_cache
+
     path = env("YTDLP_COOKIES_FILE")
     if path:
         full = path if os.path.isabs(path) else os.path.join(BASE, path)
         if os.path.isfile(full):
             _cookies_cache = full
             return full
-    b64 = env("YTDLP_COOKIES_BASE64")
-    if b64:
-        try:
-            raw = base64.b64decode(b64).decode("utf-8")
-        except Exception as e:
-            raise RuntimeError(f"YTDLP_COOKIES_BASE64 is invalid: {e}") from e
-    else:
-        raw = os.getenv("YTDLP_COOKIES")
+
+    for secret in RENDER_COOKIE_PATHS:
+        if os.path.isfile(secret):
+            _cookies_cache = secret
+            log.info("YouTube cookies: %s", _cookie_file_stats(secret))
+            return secret
+
+    secret = _find_render_secret_cookies()
+    if secret:
+        _cookies_cache = secret
+        log.info("YouTube cookies (auto secret): %s", _cookie_file_stats(secret))
+        return secret
+
+    raw = decode_cookies_from_env()
     if raw and raw.strip():
+        trimmed = trim_youtube_cookies(raw)
+        if trimmed.count("\n") < 2:
+            raise RuntimeError("YouTube cookies env var has no valid cookie entries after trim.")
         dest = os.path.join(UPLOAD, "_youtube_cookies.txt")
         with open(dest, "w", encoding="utf-8") as fh:
-            fh.write(raw.strip() + "\n")
+            fh.write(trimmed)
         _cookies_cache = dest
-        log.info("YouTube cookies loaded from env")
+        log.info("YouTube cookies from env: %s", _cookie_file_stats(dest))
         return dest
     return None
 
 
 def download_youtube_audio(url, out_base):
     url = normalize_youtube_url(url)
-    opts = {
-        "format": "bestaudio/best",
-        "outtmpl": out_base + ".%(ext)s",
-        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "128"}],
-        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
-        "quiet": True,
-        "no_warnings": True,
-        "noprogress": True,
-    }
     cookies = youtube_cookies_path()
     if cookies:
-        opts["cookiefile"] = cookies
-    elif env("YTDLP_COOKIES_BROWSER"):
-        opts["cookiesfrombrowser"] = (env("YTDLP_COOKIES_BROWSER"),)
+        log.info("YouTube download using cookies: %s", cookies)
+    else:
+        log.warning("YouTube download without cookies — likely to fail on Render")
 
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([url])
-    except yt_dlp.utils.DownloadError as e:
-        msg = str(e)
-        if "Sign in to confirm" in msg or "not a bot" in msg:
+    clients = [
+        ["android", "web"],
+        ["mweb", "android"],
+        ["tv_embedded", "android"],
+    ]
+    last_err = None
+
+    for client_list in clients:
+        opts = {
+            "format": "bestaudio/best",
+            "outtmpl": out_base + ".%(ext)s",
+            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "128"}],
+            "extractor_args": {"youtube": {"player_client": client_list}},
+            "quiet": True,
+            "no_warnings": True,
+            "noprogress": True,
+        }
+        if cookies:
+            opts["cookiefile"] = cookies
+        elif env("YTDLP_COOKIES_BROWSER"):
+            opts["cookiesfrombrowser"] = (env("YTDLP_COOKIES_BROWSER"),)
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([url])
+            mp3 = out_base + ".mp3"
+            if os.path.isfile(mp3):
+                return mp3
+        except yt_dlp.utils.DownloadError as e:
+            last_err = e
+            log.warning("YouTube client %s failed: %s", client_list, str(e)[:200])
+            continue
+
+    msg = str(last_err) if last_err else "unknown error"
+    if "Sign in to confirm" in msg or "not a bot" in msg:
+        if not cookies:
             raise RuntimeError(
-                "YouTube blocked the download from this server. "
-                "Upload the video file instead, or set YTDLP_COOKIES on Render "
-                "(export cookies from your browser — see README)."
-            ) from e
-        raise RuntimeError(f"YouTube download failed: {msg}") from e
-
-    mp3 = out_base + ".mp3"
-    if not os.path.isfile(mp3):
-        raise RuntimeError("YouTube download finished but no audio file was created.")
-    return mp3
+                "YouTube blocked this server and no cookies are configured. "
+                "On Render: Environment → Secret Files → add file named youtube_cookies "
+                "(trimmed export). Or upload the video file instead."
+            ) from last_err
+        raise RuntimeError(
+            "YouTube blocked the download even with cookies (common on cloud servers). "
+            "Re-export fresh cookies, or upload the video file instead."
+        ) from last_err
+    raise RuntimeError(f"YouTube download failed: {msg}") from last_err
 
 
 def llm(prompt, tokens=900, temp=0.4):
@@ -267,6 +375,13 @@ def health():
     index = os.path.join(app.static_folder, "index.html")
     built = os.path.isfile(index)
     has_keys = bool(env("ASSEMBLYAI_API_KEY")) and bool(env("HF_API_KEY"))
+    cookie_info = None
+    if _youtube_cookies_configured():
+        try:
+            p = youtube_cookies_path()
+            cookie_info = _cookie_file_stats(p) if p else None
+        except Exception as e:
+            cookie_info = {"error": str(e)}
     payload = {
         "status": "ok" if has_keys and built else "degraded",
         "assemblyai_configured": bool(env("ASSEMBLYAI_API_KEY")),
@@ -274,9 +389,8 @@ def health():
         "frontend_built": built,
         "static_folder": app.static_folder,
         "runtime": "docker" if os.path.isfile("/.dockerenv") else "native",
-        "youtube_cookies_configured": bool(
-            env("YTDLP_COOKIES_BASE64") or os.getenv("YTDLP_COOKIES") or env("YTDLP_COOKIES_FILE")
-        ),
+        "youtube_cookies_configured": _youtube_cookies_configured(),
+        "youtube_cookies": cookie_info,
     }
     return jsonify(payload), 200 if has_keys and built else 503
 
@@ -365,3 +479,11 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=os.getenv("FLASK_DEBUG") == "1", threaded=True)
 else:
     log.info("Static: %s (index.html=%s)", STATIC, os.path.isfile(os.path.join(STATIC, "index.html")))
+    if _youtube_cookies_configured():
+        try:
+            p = youtube_cookies_path()
+            log.info("Startup cookies: %s", _cookie_file_stats(p) if p else "missing")
+        except Exception as e:
+            log.warning("Startup cookies error: %s", e)
+    else:
+        log.warning("No YouTube cookies configured — YouTube URLs will fail on Render")

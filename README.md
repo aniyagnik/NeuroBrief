@@ -110,21 +110,30 @@ Your app will be live at `https://<service-name>.onrender.com` (UI + API on one 
 
 YouTube frequently blocks datacenter IPs (Render, Railway, etc.). **Easiest fix: upload the video file** instead of pasting a URL.
 
-To try YouTube links on Render:
+To try YouTube links on Render (cookie files are often **too big** for env vars — use one of these):
 
-1. Install **"Get cookies.txt LOCALLY"** in Chrome/Firefox.
-2. Open [youtube.com](https://www.youtube.com) while logged in → export cookies (Netscape `.txt` format).
-3. On your computer, base64-encode the file (recommended — Render handles one line better):
+### A) Render Secret File (recommended — no size limit)
+
+1. Export cookies with **"Get cookies.txt LOCALLY"** while logged into YouTube.
+2. Trim to YouTube-only cookies (much smaller):
    ```bash
-   base64 -w0 youtube_cookies.txt
+   python3 scripts/trim_youtube_cookies.py youtube_cookies.txt youtube_trimmed.txt
    ```
-4. Render Dashboard → your service → **Environment** → **Add variable**
-   - **Key:** `YTDLP_COOKIES_BASE64`
-   - **Value:** paste the long base64 string from step 3
-5. **Save** → **Manual Deploy** (must redeploy after env changes).
-6. Check: `curl https://YOUR-APP.onrender.com/api/health` → `"youtube_cookies_configured": true`
+3. Render → **Environment** → **Secret Files** → **Add Secret File**
+   - **Filename:** `youtube_cookies`
+   - **Contents:** paste contents of `youtube_trimmed.txt`
+4. Save → **Manual Deploy** (no env var needed — app reads `/etc/secrets/youtube_cookies`).
 
-Alternative: set **`YTDLP_COOKIES`** to the raw file contents (multiline). Base64 is more reliable on Render.
+### B) Compressed env var (if Secret File isn’t available)
+
+After step 2 above, the script also writes `youtube_cookies_gz_b64.txt`. On Render **Environment**:
+
+- **Key:** `YTDLP_COOKIES_GZ_B64`
+- **Value:** paste that one-line file (gzip + base64, usually &lt; 8 KB)
+
+### C) Upload the video instead
+
+Skip cookies entirely — download the video on your PC and use **Upload Video**.
 
 Locally use `YTDLP_COOKIES_BROWSER=chrome` in `.env` instead.
 
